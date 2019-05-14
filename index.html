@@ -1,0 +1,231 @@
+<html>
+  <head>
+    <title>Tearing Animation - https://imgur.com/gallery/Ui4uFqm</title>
+    <style type="text/css">
+body {
+  margin: 0;
+  background-color: black;
+}
+
+canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#inspiration {
+  position: fixed;
+  bottom: 10;
+  left: 10;
+}
+
+#inspiration, #inspiration a, #switchmode {
+  color: white;
+}
+    </style>
+    <script type="text/javascript">
+// This is all plain JavaScript on a single page. There's a software canvas mode and a hardware
+// WebGL mode.
+let mode = "canvas";
+let state = {}
+let elements = {};
+window.addEventListener("load", () => {
+  mode = "canvas";
+  state = load_state();
+  elements = load();
+  loop();
+});
+
+function random_center() {
+  const r = 2 * Math.random() - 1;
+  return (r * r + 1) / 2;
+}
+
+function load_state() {
+  // Initialize the state of the animation. This is independent of how it is drawn.
+  return {
+    // Normalized location of the center of the tear.
+    center: [random_center(), random_center()],
+    // Angle of the tear in radians.
+    angle: (Math.random() - 0.25) * Math.PI,
+    // Current iteration of the animation. 0 means this is a new animation that needs to be drawn.
+    iteration: 0,
+    // Total number of iterations. Change this to make the tear larger or smaller.
+    max_iteration: 15,
+    // Normalized amount to move per iteration. This is a function of width.
+    iteration_size: 0.001,
+  };
+}
+
+function load() {
+  if (mode === "canvas") {
+    return load_canvas();
+  }
+}
+
+function loop() {
+  requestAnimationFrame(loop);
+  if (mode === "canvas") {
+    loop_canvas();
+  }
+
+  state.iteration++;
+  if (state.iteration === state.max_iteration) {
+    // Reload a new iteration.
+    state = load_state();
+  }
+}
+
+// Naive canvas implementation
+function load_canvas() {
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+
+  // Visible canvas.
+  const canvas = document.getElementById("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  // Double buffer to prevent flickering.
+  const double_buffer = document.createElement("canvas");
+  double_buffer.width = width;
+  double_buffer.height = height;
+
+  // Canvas containing the left half of the tear. The right half should be transparent.
+  const left_half = document.createElement("canvas");
+  left_half.width = width;
+  left_half.height = height;
+
+  // Canvas containing the right half of the tear. The left half should be transparent.
+  const right_half = document.createElement("canvas");
+  right_half.width = width;
+  right_half.height = height;
+
+  return {
+    mode: "canvas",
+    width: width,
+    height: height,
+    canvas: canvas,
+    double_buffer: double_buffer,
+    left_half: left_half,
+    right_half: right_half,
+  };
+}
+
+// Compute a tear using sum of sines.
+function generate_tear(x) {
+  return 0.01 * Math.sin(10 * x);
+}
+
+function loop_canvas() {
+  // Make sure we're in the right mode.
+  if (elements.mode !== "canvas") {
+    console.error("Wrong mode");
+    return;
+  }
+
+  const maxdim = Math.max(elements.width, elements.height);
+  const ctx = elements.canvas.getContext("2d");
+
+  if (state.iteration === 0) {
+    // Get a copy of image data for the halves.
+    const cim = ctx.getImageData(0, 0, elements.width, elements.height);
+    const lim = ctx.createImageData(cim);
+    lim.data.set(cim.data);
+    const rim = ctx.createImageData(cim);
+    rim.data.set(cim.data);
+
+    // Start a new iteration.
+    if (state.angle < Math.PI / 4.0) {
+      // Paint from top/down.
+      for (let x = 0; x < elements.width; x++) {
+        const nx = x / elements.width;
+        const offset = generate_tear(nx);
+        const ny = (nx - state.center[0]) * Math.tan(state.angle) + state.center[1] + offset;
+        const y = Math.floor(ny * elements.height);
+
+        // Clear out the "left half" on the right half canvas.
+        for (let sy = 0; sy < y && sy < elements.height; sy++) {
+          const o = (sy * elements.width + x) * 4;
+          // End with a white line.
+          const v = (sy === y - 1) ? 255 : 0;
+          rim.data[o + 0] = v; // R
+          rim.data[o + 1] = v; // G
+          rim.data[o + 2] = v; // B
+          rim.data[o + 3] = v; // A
+        }
+
+        // Clear out the "right half" on the left half canvas.
+        for (let sy = Math.max(y, 0); sy < elements.height; sy++) {
+          const o = (sy * elements.width + x) * 4;
+          // Start with a white line.
+          const v = (sy === y) ? 255 : 0;
+          lim.data[o + 0] = v; // R
+          lim.data[o + 1] = v; // G
+          lim.data[o + 2] = v; // B
+          lim.data[o + 3] = v; // A
+        }
+      }
+    }
+    else {
+      // Paint from left/right.
+      for (let y = 0; y < elements.height; y++) {
+        const ny = y / elements.height;
+        const offset = generate_tear(ny);
+        const nx = (ny - state.center[1]) / Math.tan(state.angle) + state.center[0] + offset;
+        const x = Math.floor(nx * elements.width);
+
+        // Clear out the "left half" on the right half canvas.
+        for (let sx = 0; sx < x && sx < elements.width; sx++) {
+          const o = (y * elements.width + sx) * 4;
+          // End with a white line.
+          const v = (sx === x - 1) ? 255 : 0;
+          lim.data[o + 0] = v; // R
+          lim.data[o + 1] = v; // G
+          lim.data[o + 2] = v; // B
+          lim.data[o + 3] = v; // A
+        }
+
+        // Clear out the "right half" on the left half canvas.
+        for (let sx = Math.max(x, 0); sx < elements.width; sx++) {
+          const o = (y * elements.width + sx) * 4;
+          // Start with a white line.
+          const v = (sx === x) ? 255 : 0;
+          rim.data[o + 0] = v; // R
+          rim.data[o + 1] = v; // G
+          rim.data[o + 2] = v; // B
+          rim.data[o + 3] = v; // A
+        }
+      }
+    }
+
+    // Draw left and right halves onto the halves.
+    const lctx = elements.left_half.getContext("2d");
+    const rctx = elements.right_half.getContext("2d");
+    lctx.putImageData(lim, 0, 0);
+    rctx.putImageData(rim, 0, 0);
+  }
+
+  // Draw left half and right half onto the canvas.
+  const distance = maxdim * state.iteration * state.iteration_size;
+  const dx = -Math.floor(distance * Math.sin(state.angle));
+  const dy = Math.floor(distance * Math.cos(state.angle));
+  ctx.clearRect(0, 0, elements.width, elements.height);
+  ctx.drawImage(elements.left_half, -dx, -dy);
+  ctx.drawImage(elements.right_half, dx, dy);
+}
+    </script>
+  </head>
+  <body>
+    <canvas id="canvas"></canvas>
+    <div id="inspiration">
+      Inspired by
+      <a href="https://imgur.com/gallery/Ui4uFqm">https://imgur.com/gallery/Ui4uFqm</a>
+    </div>
+    <div id="switchmode">
+      <!--Not working? Click here to switch modes.-->
+    </div>
+  </body>
+</html>
